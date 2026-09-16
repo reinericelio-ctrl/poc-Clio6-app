@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PoC Application Véhicule</title>
+    <!-- Importation d'une police moderne et des icônes -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- IMPORT DE MODEL-VIEWER POUR LA 3D -->
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
+    
+    <style>
+        /* --- VARIABLES CSS --- */
+        :root {
+            --bg-dark: #0a0a0c;
+            --bg-card: #16161a;
+            --bg-card-light: #222228;
+            --text-main: #ffffff;
+            --text-muted: #a0a0a8;
+            --gradient-primary: linear-gradient(90deg, #5b21b6, #e11d48);
+            --gradient-subtle: linear-gradient(135deg, rgba(91, 33, 182, 0.2), rgba(22, 22, 26, 0));
+            --radius-lg: 16px;
+            --radius-md: 12px;
+        }
+
+        /* --- RESET ET BASE --- */
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+        body { background-color: #000; display: flex; justify-content: center; color: var(--text-main); }
+        
+        #app-container {
+            width: 100%; max-width: 414px; height: 100vh;
+            background-color: var(--bg-dark); position: relative;
+            overflow: hidden; box-shadow: 0 0 20px rgba(255,255,255,0.05);
+        }
+
+        .view {
+            display: none; height: calc(100vh - 70px); overflow-y: auto;
+            padding: 20px; animation: fadeIn 0.3s ease-in-out;
+            position: relative; /* Base pour le z-index */
+        }
+        .view.active { display: block; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Arrière-plan coloré stylisé (CORRIGÉ POUR NE PLUS BLOQUER LE CLIC) */
+        .hero-bg {
+            position: absolute; top: 0; left: 0; right: 0; height: 400px;
+            background: linear-gradient(180deg, rgba(91,33,182,0.4) 0%, rgba(225,29,72,0.3) 50%, var(--bg-dark) 100%);
+            z-index: 0; pointer-events: none; /* Laisse passer les clics */
+        }
+
+        /* Wrappers pour forcer les éléments au dessus du dégradé */
+        .content-front {
+            position: relative; z-index: 10;
+        }
+
+        /* --- COMPOSANTS UI --- */
+        .header { text-align: center; margin-bottom: 20px; position: relative; }
+        .header h1 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-main); margin-bottom: 5px; }
+        .header .back-btn { position: absolute; left: 0; top: 0; font-size: 20px; color: var(--text-main); text-decoration: none; }
+        
+        .huge-number { font-size: 48px; font-weight: 700; }
+        .huge-number span { font-size: 20px; color: var(--text-muted); }
+
+        /* --- MODEL VIEWER (3D) --- */
+        model-viewer {
+            width: 100%;
+            height: 250px;
+            background-color: transparent;
+            --poster-color: transparent;
+            margin: 20px 0;
+            outline: none;
+        }
+
+        /* Bouton "Vue 360" */
+        .btn-360 { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 6px 12px; border-radius: 20px; font-size: 12px; backdrop-filter: blur(5px); z-index: 20; pointer-events: none;}
+
+        /* Hotspots 3D natifs pour Model-Viewer */
+        .hotspot-3d {
+            display: block; width: 20px; height: 20px; border-radius: 10px;
+            border: 2px solid white; background-color: #e11d48;
+            box-shadow: 0 0 10px rgba(225, 29, 72, 0.8); cursor: pointer;
+            position: relative; transition: transform 0.2s;
+        }
+        .hotspot-3d:hover { transform: scale(1.2); }
+        .hotspot-label {
+            position: absolute; top: -25px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.8); color: white; padding: 4px 8px;
+            border-radius: 4px; font-size: 10px; pointer-events: none; white-space: nowrap; font-weight: bold;
+        }
+
+        /* Cartes et Grilles */
+        .card { background-color: var(--bg-card); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; cursor: pointer; border: 1px solid rgba(255,255,255,0.05); }
+        .card:active { transform: scale(0.98); }
+        .card.highlight { background: var(--gradient-subtle); border: 1px solid rgba(91, 33, 182, 0.4); }
+        
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+        .grid-card { background-color: var(--bg-card); border-radius: var(--radius-md); padding: 12px; display: flex; align-items: center; gap: 10px; border: 1px solid rgba(255,255,255,0.05); cursor: pointer; }
+        .grid-card i { color: var(--text-muted); }
+        .grid-card span { font-size: 13px; font-weight: 600; }
+        .grid-card:active { transform: scale(0.98); }
+
+        .btn-primary { background: var(--gradient-primary); color: white; border: none; width: 100%; padding: 16px; border-radius: var(--radius-lg); font-size: 16px; font-weight: bold; margin-top: 20px; cursor: pointer; box-shadow: 0 4px 15px rgba(225, 29, 72, 0.3); }
+
+        /* Navbar */
+        .bottom-nav { position: absolute; bottom: 0; left: 0; width: 100%; height: 70px; background-color: var(--bg-card); border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-around; align-items: center; z-index: 50; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-muted); font-size: 10px; gap: 4px; cursor: pointer; }
+        .nav-item.active { color: white; }
+
+        /* Loader */
+        .loader-overlay { display: none; position: absolute; top:0; left:0; right:0; bottom:0; background: rgba(10,10,12,0.9); z-index: 100; justify-content: center; align-items: center; flex-direction: column; }
+        .spinner { border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid #e11d48; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+
+    <!-- ==================== VUE 1 : DASHBOARD (VOITURE 3D FIXE) ==================== -->
+    <div id="view-home" class="view active">
+        <div class="hero-bg"></div>
+        
+        <!-- Contenu forcé au premier plan pour corriger les superpositions -->
+        <div class="content-front">
+            <div class="header">
+                <h1>Arkana</h1>
+                <div class="huge-number">203<span>km</span></div>
+                <div style="font-size: 12px; color: var(--text-muted);"><i class="fa-solid fa-gas-pump"></i> 13 L</div>
+            </div>
+
+            <!-- Voiture 3D FIXE (sans camera-controls, ni zoom, ni interaction) -->
+            <!-- REMPLACE LE "src" PAR TON FICHIER arkana.glb -->
+            <model-viewer 
+                <model-viewer 
+    src="2026_renault_clio.glb" 
+    interaction-prompt="none"
+    disable-zoom
+    disable-pan
+    camera-orbit="-45deg 75deg auto"
+    shadow-intensity="1"
+    environment-image="neutral">
+            </model-viewer>
+
+            <p style="text-align: center; font-size: 11px; color: var(--text-muted); margin-bottom: 20px;">données mises à jour à 11:11</p>
+
+            <h3 style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">ENTRETIEN</h3>
+            
+            <div class="card">
+                <div class="card-icon"><i class="fa-solid fa-wrench"></i></div>
+                <div class="card-content">
+                    <div class="card-title" style="font-weight: 600; font-size: 15px;">agenda véhicule</div>
+                    <div class="card-desc" style="font-size: 12px; color: var(--text-muted);">retrouvez vos prochains entretiens</div>
+                </div>
+                <i class="fa-solid fa-chevron-right" style="color: var(--text-muted); font-size: 12px;"></i>
+            </div>
+
+            <div class="card highlight" onclick="navigate('view-accessories')">
+                <div class="card-icon"><i class="fa-solid fa-car-sparkles"></i></div>
+                <div class="card-content">
+                    <div class="card-title" style="font-weight: 600; font-size: 15px;">personnaliser mon véhicule</div>
+                    <div class="card-desc" style="font-size: 12px; color: var(--text-muted);">découvrez et équipez votre Arkana selon vos envies</div>
+                </div>
+                <i class="fa-solid fa-chevron-right" style="color: var(--text-muted); font-size: 12px;"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== VUE 2 : ACCESSOIRES (VOITURE 3D INTERACTIVE) ==================== -->
+    <div id="view-accessories" class="view">
+        <div class="hero-bg"></div>
+        
+        <div class="content-front">
+            <div class="header">
+                <a href="#" class="back-btn" onclick="navigate('view-home')"><i class="fa-solid fa-arrow-left"></i></a>
+                <h1>Accessoires</h1>
+            </div>
+
+            <h2 style="font-size: 18px; margin-bottom: 5px;">Personnalisez votre Arkana</h2>
+            <p style="font-size: 12px; color: var(--text-muted);">Sélectionnez une zone du véhicule pour découvrir les accessoires compatibles.</p>
+
+            <div style="position: relative;">
+                <div class="btn-360"><i class="fa-solid fa-rotate"></i> Vue 360°</div>
+                
+                <!-- Voiture 3D INTERACTIVE avec Hotspots -->
+                <!-- REMPLACE LE "src" PAR TON FICHIER arkana.glb -->
+                <model-viewer 
+                    src="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/ToyCar/glTF-Binary/ToyCar.glb" 
+                    camera-controls 
+                    auto-rotate
+                    rotation-per-second="30deg"
+                    shadow-intensity="1"
+                    environment-image="neutral"
+                    style="height: 280px; margin-bottom: 20px;">
+                    
+                    <!-- Points d'intérêts en 3D (Les data-position "x y z" seront à ajuster selon ton vrai modèle) -->
+                    <button class="hotspot-3d" slot="hotspot-toit" data-position="0 1 0" data-normal="0 1 0" onclick="navigate('view-product')">
+                        <div class="hotspot-label">Toit</div>
+                    </button>
+                    <button class="hotspot-3d" slot="hotspot-coffre" data-position="0 0.5 1.5" data-normal="0 0 1" onclick="navigate('view-product')">
+                        <div class="hotspot-label">Coffre</div>
+                    </button>
+                    <button class="hotspot-3d" slot="hotspot-portes" data-position="1 0.4 0" data-normal="1 0 0" onclick="navigate('view-product')">
+                        <div class="hotspot-label">Portes</div>
+                    </button>
+                    <button class="hotspot-3d" slot="hotspot-jantes" data-position="1.2 0.2 1" data-normal="1 0 0" onclick="navigate('view-product')">
+                        <div class="hotspot-label">Jantes</div>
+                    </button>
+                </model-viewer>
+            </div>
+
+            <!-- Grille d'accessoires abaissée et rendue cliquable avec certitude -->
+            <h3 style="font-size: 14px; margin-top: 10px;">Choisissez une zone</h3>
+            <div class="grid-2">
+                <div class="grid-card" style="border-color: #3b82f6;" onclick="navigate('view-product')">
+                    <i class="fa-solid fa-car"></i>
+                    <div style="display: flex; flex-direction: column;">
+                        <span>Toit</span>
+                        <span style="font-size: 9px; color: var(--text-muted); font-weight: normal;">Barres, coffres...</span>
+                    </div>
+                </div>
+                <div class="grid-card" onclick="navigate('view-product')">
+                    <i class="fa-solid fa-door-closed"></i>
+                    <div style="display: flex; flex-direction: column;">
+                        <span>Portes</span>
+                        <span style="font-size: 9px; color: var(--text-muted); font-weight: normal;">Seuils, protections...</span>
+                    </div>
+                </div>
+                <div class="grid-card" onclick="navigate('view-product')">
+                    <i class="fa-solid fa-truck-pickup"></i>
+                    <div style="display: flex; flex-direction: column;">
+                        <span>Coffre</span>
+                        <span style="font-size: 9px; color: var(--text-muted); font-weight: normal;">Tapis, bacs...</span>
+                    </div>
+                </div>
+                <div class="grid-card" onclick="navigate('view-product')">
+                    <i class="fa-solid fa-compact-disc"></i>
+                    <div style="display: flex; flex-direction: column;">
+                        <span>Jantes</span>
+                        <span style="font-size: 9px; color: var(--text-muted); font-weight: normal;">Alliage, enjoliveurs</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== VUE 3 : PRODUIT & PANIER (Identique au précédent) ==================== -->
+    <div id="view-product" class="view">
+        <div class="content-front">
+            <div class="header">
+                <a href="#" class="back-btn" onclick="navigate('view-accessories')"><i class="fa-solid fa-arrow-left"></i></a>
+                <h1>Votre panier</h1>
+            </div>
+            <!-- Reste du code du panier, sans changement, géré dynamiquement dans l'UI -->
+            <h2 style="font-size: 20px; margin-bottom: 5px;">Validez et payez</h2>
+            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;"><i class="fa-solid fa-shield-halved"></i> Paiement 100% sécurisé</p>
+
+            <div class="card" style="align-items: flex-start; cursor: default;">
+                <div class="card-content" style="width: 100%;">
+                    <h3 style="font-size: 14px; margin-bottom: 15px; color: var(--text-muted);">Récapitulatif de la commande</h3>
+                    <div style="display: flex; gap: 15px; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px;">
+                        <div style="width: 80px; height: 50px; background: rgba(255,255,255,0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                            <i class="fa-solid fa-box" style="font-size: 24px; color: var(--text-muted);"></i>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; font-size: 14px;">Coffre de toit Renault 480 L</div>
+                            <div style="margin-top: 5px; font-weight: bold;">549,00 € TTC</div>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px;">
+                        <span style="color: var(--text-muted);">Sous-total accessoires</span><span>549,00 €</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px;">
+                        <span style="color: var(--text-muted);">Pose recommandée</span><span>80,00 €</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: bold; margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+                        <span>Total TTC</span><span style="color: #e11d48;">629,00 €</span>
+                    </div>
+                </div>
+            </div>
+            <button class="btn-primary" onclick="processPayment()"><i class="fa-solid fa-lock"></i> Payer 629,00 €</button>
+        </div>
+    </div>
+
+    <!-- ==================== VUE 4 : SUCCES ==================== -->
+    <div id="view-success" class="view" style="text-align: center; padding-top: 50px;">
+        <i class="fa-solid fa-circle-check" style="font-size: 60px; color: #10b981; margin-bottom: 15px; text-shadow: 0 0 20px rgba(16, 185, 129, 0.4);"></i>
+        <h2 style="font-size: 24px; margin-bottom: 10px;">Paiement réussi !</h2>
+        <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 40px;">Merci pour votre commande, elle a bien été prise en compte.</p>
+        <button class="btn-primary" onclick="navigate('view-home')">Retour à l'accueil</button>
+    </div>
+
+    <!-- ==================== LOADER ==================== -->
+    <div id="loader" class="loader-overlay">
+        <div class="spinner"></div>
+        <p style="font-weight: 600;">Traitement du paiement...</p>
+    </div>
+
+    <!-- ==================== NAVBAR ==================== -->
+    <nav class="bottom-nav">
+        <div class="nav-item active" onclick="navigate('view-home')"><i class="fa-solid fa-car"></i><span>véhicule</span></div>
+        <div class="nav-item"><i class="fa-solid fa-location-dot"></i><span>carte</span></div>
+        <div class="nav-item"><i class="fa-solid fa-bag-shopping"></i><span>store</span></div>
+        <div class="nav-item"><i class="fa-regular fa-user"></i><span>compte</span></div>
+    </nav>
+
+</div>
+
+<script>
+    function navigate(viewId) {
+        document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+        document.getElementById(viewId).classList.add('active');
+        const navItems = document.querySelectorAll('.nav-item');
+        navItems.forEach(item => item.classList.remove('active'));
+        if(viewId === 'view-home') navItems[0].classList.add('active');
+    }
+
+    function processPayment() {
+        const loader = document.getElementById('loader');
+        loader.style.display = 'flex';
+        setTimeout(() => {
+            loader.style.display = 'none';
+            navigate('view-success');
+        }, 2000);
+    }
+</script>
+
+</body>
+</html>
